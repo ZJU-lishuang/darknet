@@ -185,6 +185,24 @@ void find_replace(char *str, char *orig, char *rep, char *output)
     free(buffer);
 }
 
+void trim(char *str)
+{
+    char *buffer = calloc(8192, sizeof(char));
+    sprintf(buffer, "%s", str);
+
+    char *p = buffer;
+    while (*p == ' ' || *p == '\t') ++p;
+
+    char *end = p + strlen(p) - 1;
+    while (*end == ' ' || *end == '\t') {
+        *end = '\0';
+        --end;
+    }
+    sprintf(str, "%s", p);
+
+    free(buffer);
+}
+
 void find_replace_extension(char *str, char *orig, char *rep, char *output)
 {
     char *buffer = calloc(8192, sizeof(char));
@@ -200,20 +218,24 @@ void find_replace_extension(char *str, char *orig, char *rep, char *output)
     }
 
     *p = '\0';
-
     sprintf(output, "%s%s%s", buffer, rep, p + strlen(orig));
     free(buffer);
 }
 
-void replace_image_to_label(char *input_path, char *output_path) {
-    //find_replace(input_path, "/images/", "/labels/", output_path);    // COCO
+void replace_image_to_label(char *input_path, char *output_path)
+{
     find_replace(input_path, "/images/train2014/", "/labels/train2014/", output_path);    // COCO
     find_replace(output_path, "/images/val2014/", "/labels/val2014/", output_path);        // COCO
     find_replace(output_path, "/JPEGImages/", "/labels/", output_path);    // PascalVOC
+    find_replace(output_path, "\\images\\train2014\\", "\\labels\\train2014\\", output_path);    // COCO
+    find_replace(output_path, "\\images\\val2014\\", "\\labels\\val2014\\", output_path);        // COCO
+    find_replace(output_path, "\\JPEGImages\\", "\\labels\\", output_path);    // PascalVOC
+    //find_replace(output_path, "/images/", "/labels/", output_path);    // COCO
     //find_replace(output_path, "/VOC2007/JPEGImages/", "/VOC2007/labels/", output_path);        // PascalVOC
     //find_replace(output_path, "/VOC2012/JPEGImages/", "/VOC2012/labels/", output_path);        // PascalVOC
 
     //find_replace(output_path, "/raw/", "/labels/", output_path);
+    trim(output_path);
 
     // replace only ext of files
     find_replace_extension(output_path, ".jpg", ".txt", output_path);
@@ -578,7 +600,7 @@ float mag_array(float *a, int n)
     int i;
     float sum = 0;
     for(i = 0; i < n; ++i){
-        sum += a[i]*a[i];   
+        sum += a[i]*a[i];
     }
     return sqrt(sum);
 }
@@ -673,7 +695,7 @@ float rand_normal()
 
 size_t rand_size_t()
 {
-    return  ((size_t)(rand()&0xff) << 56) | 
+    return  ((size_t)(rand()&0xff) << 56) |
             ((size_t)(rand()&0xff) << 48) |
             ((size_t)(rand()&0xff) << 40) |
             ((size_t)(rand()&0xff) << 32) |
