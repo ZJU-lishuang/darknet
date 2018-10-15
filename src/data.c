@@ -135,19 +135,21 @@ matrix load_image_augment_paths(char **paths, int n, int use_flip, int min, int 
     return X;
 }
 
+extern int check_mistakes;
 
 box_label *read_boxes(char *filename, int *n)
 {
     box_label *boxes = calloc(1, sizeof(box_label));
     FILE *file = fopen(filename, "r");
     if (!file) {
-        printf("Can't open label file. (This can be normal only if you use MSCOCO) \n");
+        printf("Can't open label file. (This can be normal only if you use MSCOCO): %s \n", filename);
         //file_error(filename);
         FILE* fw = fopen("bad.list", "a");
         fwrite(filename, sizeof(char), strlen(filename), fw);
         char *new_line = "\n";
         fwrite(new_line, sizeof(char), strlen(new_line), fw);
         fclose(fw);
+        if (check_mistakes) getchar();
 
         *n = 0;
         return boxes;
@@ -334,8 +336,8 @@ void fill_truth_detection(char *path, int num_boxes, float *truth, int classes, 
         // if truth (box for object) is smaller than 1x1 pix
         char buff[256];
         if (id >= classes) {
-            printf("\n Wrong annotation: class_id = %d. But class_id should be [from 0 to %d] \n", id, classes);
-            sprintf(buff, "echo %s \"Wrong annotation: class_id = %d. But class_id should be [from 0 to %d]\" >> bad_label.list", labelpath, id, classes);
+            printf("\n Wrong annotation: class_id = %d. But class_id should be [from 0 to %d] \n", id, (classes-1));
+            sprintf(buff, "echo %s \"Wrong annotation: class_id = %d. But class_id should be [from 0 to %d]\" >> bad_label.list", labelpath, id, (classes-1));
             system(buff);
             getchar();
             ++sub;
@@ -352,6 +354,7 @@ void fill_truth_detection(char *path, int num_boxes, float *truth, int classes, 
             sprintf(buff, "echo %s \"Wrong annotation: x = 0 or y = 0\" >> bad_label.list", labelpath);
             system(buff);
             ++sub;
+            if (check_mistakes) getchar();
             continue;
         }
         if (x <= 0 || x > 1 || y <= 0 || y > 1) {
@@ -359,6 +362,7 @@ void fill_truth_detection(char *path, int num_boxes, float *truth, int classes, 
             sprintf(buff, "echo %s \"Wrong annotation: x = %f, y = %f\" >> bad_label.list", labelpath, x, y);
             system(buff);
             ++sub;
+            if (check_mistakes) getchar();
             continue;
         }
         if (w > 1) {
@@ -366,12 +370,14 @@ void fill_truth_detection(char *path, int num_boxes, float *truth, int classes, 
             sprintf(buff, "echo %s \"Wrong annotation: w = %f\" >> bad_label.list", labelpath, w);
             system(buff);
             w = 1;
+            if (check_mistakes) getchar();
         }
         if (h > 1) {
             printf("\n Wrong annotation: h = %f \n", h);
             sprintf(buff, "echo %s \"Wrong annotation: h = %f\" >> bad_label.list", labelpath, h);
             system(buff);
             h = 1;
+            if (check_mistakes) getchar();
         }
         if (x == 0) x += lowest_w;
         if (y == 0) y += lowest_h;
@@ -757,6 +763,7 @@ data load_data_detection(int n, char **paths, int m, int w, int h, int c, int bo
             char buff[256];
             sprintf(buff, "echo %s >> bad.list", filename);
             system(buff);
+            if (check_mistakes) getchar();
             continue;
             //exit(0);
         }

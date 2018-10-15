@@ -257,7 +257,7 @@ void cudnn_convolutional_setup(layer *l, int cudnn_preference)
 #endif
 #endif
 
-convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int n, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam)
+convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int n, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam, int use_bin_output)
 {
     int i;
     convolutional_layer l = {0};
@@ -269,6 +269,7 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
     l.n = n;
     l.binary = binary;
     l.xnor = xnor;
+    l.use_bin_output = use_bin_output;
     l.batch = batch;
     l.stride = stride;
     l.size = size;
@@ -307,7 +308,7 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
         l.binary_weights = calloc(c*n*size*size, sizeof(float));
         l.binary_input = calloc(l.inputs*l.batch, sizeof(float));
 
-        int align = 8;
+        int align = 32;// 8;
         int src_align = l.out_h*l.out_w;
         l.bit_align = src_align + (align - src_align % align);
     }
@@ -404,8 +405,9 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
 
     //fprintf(stderr, "conv  %5d %2d x%2d /%2d  %4d x%4d x%4d   ->  %4d x%4d x%4d\n", n, size, size, stride, w, h, c, l.out_w, l.out_h, l.out_c);
     l.bflops = (2.0 * l.n * l.size*l.size*l.c * l.out_h*l.out_w) / 1000000000.;
-    if (l.xnor) fprintf(stderr, "convX ");
-    else  fprintf(stderr, "conv  ");
+    if (l.xnor && l.use_bin_output) fprintf(stderr, "convXB");
+    else if (l.xnor) fprintf(stderr, "convX ");
+    else fprintf(stderr, "conv  ");
     fprintf(stderr, "%5d %2d x%2d /%2d  %4d x%4d x%4d   ->  %4d x%4d x%4d %5.3f BF\n", n, size, size, stride, w, h, c, l.out_w, l.out_h, l.out_c, l.bflops);
 
     return l;
@@ -428,7 +430,7 @@ void denormalize_convolutional_layer(convolutional_layer l)
 
 void test_convolutional_layer()
 {
-    convolutional_layer l = make_convolutional_layer(1, 5, 5, 3, 2, 5, 2, 1, LEAKY, 1, 0, 0, 0);
+    convolutional_layer l = make_convolutional_layer(1, 5, 5, 3, 2, 5, 2, 1, LEAKY, 1, 0, 0, 0, 0);
     l.batch_normalize = 1;
     float data[] = {1,1,1,1,1,
         1,1,1,1,1,
@@ -605,13 +607,14 @@ void binary_align_weights(convolutional_layer *l)
     int m = l->n;
     int k = l->size*l->size*l->c;
     size_t new_lda = k + (l->lda_align - k % l->lda_align); // (k / 8 + 1) * 8;
+    l->new_lda = new_lda;
 
     binarize_weights(l->weights, m, k, l->binary_weights);
 
     size_t align_weights_size = new_lda * m;
-    size_t align_bit_weights_size = align_weights_size / 8;// +1;
+    l->align_bit_weights_size = align_weights_size / 8;// +1;
     float *align_weights = calloc(align_weights_size, sizeof(float));
-    l->align_bit_weights = calloc(align_bit_weights_size, sizeof(char));
+    l->align_bit_weights = calloc(l->align_bit_weights_size, sizeof(char));
 
     size_t i, j;
     // align A without transpose
@@ -625,29 +628,37 @@ void binary_align_weights(convolutional_layer *l)
     l->mean_arr = calloc(l->n, sizeof(float));
     get_mean_array(align_weights, align_weights_size, l->n, l->mean_arr);
 
+#ifdef GPU
+    cudaError_t status;
+    l->align_workspace_size = l->bit_align * l->size * l->size * l->c;
+    status = cudaMalloc((void **)&l->align_workspace_gpu, l->align_workspace_size * sizeof(float));
+    status = cudaMalloc((void **)&l->transposed_align_workspace_gpu, l->align_workspace_size * sizeof(float));
+    check_error(status);
+
+    //l->align_bit_weights_gpu = cuda_make_array(l->align_bit_weights, l->align_bit_weights_size * sizeof(char)/sizeof(float));
+    status = cudaMalloc((void **)&l->align_bit_weights_gpu, l->align_bit_weights_size);
+    check_error(status);
+    status = cudaMemcpy(l->align_bit_weights_gpu, l->align_bit_weights, l->align_bit_weights_size, cudaMemcpyHostToDevice);
+    check_error(status);
+    status = cudaMemcpy(l->binary_weights_gpu, l->binary_weights, m*k*sizeof(float), cudaMemcpyHostToDevice);
+    check_error(status);
+
+    l->mean_arr_gpu = cuda_make_array(l->mean_arr, l->n);
+    cudaDeviceSynchronize();
+#endif // GPU
+
     free(align_weights);
 }
 
-// further optimizations: im2col_bin() for XNOR, and then transpose_aling_bin()
+// binary transpose
 size_t binary_transpose_align_input(int k, int n, float *b, char **t_bit_input, size_t ldb_align, int bit_align)
 {
     size_t new_ldb = k + (ldb_align - k%ldb_align); // (k / 8 + 1) * 8;
     size_t t_intput_size = new_ldb * n;
     size_t t_bit_input_size = t_intput_size / 8;// +1;
-    //float *t_input = calloc(t_intput_size, sizeof(float));
-    //char *
+
     *t_bit_input = calloc(t_bit_input_size, sizeof(char));
-
-    //printf("\n bit_input_size = %d, n = %d, k = %d, ldb = %d \n", bit_input_size, n, k, n);
-    //printf("\n t_bit_input_size = %d, k = %d, n = %d, new_ldb = %d \n", t_bit_input_size, k, n, new_ldb);
-
-    //printf("\n align_weights_size = %d, k = %d, m = %d, lda = %d \n", align_weights_size, k, m, k);
-    //printf("\n align_bit_weights_size = %d, k = %d, m = %d, new_lda = %d \n", align_bit_weights_size, k, m, new_ldb);
-
     int src_size = k * bit_align;
-    //printf("\n src_size = %d \n", src_size);
-
-    //float_to_bit(b, t_input, src_size);
 
     // b - [bit_align, k] - [l.bit_align, l.size*l.size*l.c] = src_size
     // t_input - [bit_align, k] - [n', k]
@@ -655,8 +666,6 @@ size_t binary_transpose_align_input(int k, int n, float *b, char **t_bit_input, 
 
     //transpose_bin(t_input, *t_bit_input, k, n, bit_align, new_ldb, 8);
     transpose_bin(b, *t_bit_input, k, n, bit_align, new_ldb, 8);
-
-    //free(t_input);
 
     return t_intput_size;
 }
@@ -671,7 +680,7 @@ void forward_convolutional_layer(convolutional_layer l, network_state state)
     fill_cpu(l.outputs*l.batch, 0, l.output, 1);
 
     if(l.xnor){
-        if (!l.align_bit_weights) {
+        if (!l.align_bit_weights || state.train) {
             binarize_weights(l.weights, l.n, l.c*l.size*l.size, l.binary_weights);
             //printf("\n binarize_weights l.align_bit_weights = %p \n", l.align_bit_weights);
         }
@@ -709,7 +718,7 @@ void forward_convolutional_layer(convolutional_layer l, network_state state)
 
         //gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
         //gemm_nn_custom(m, n, k, 1, a, k, b, n, c, n);
-        if (l.xnor && (l.stride == 1 && l.pad == 1)) {
+        if (l.xnor && l.align_bit_weights && !state.train && (l.stride == 1 && l.pad == 1)) {
             memset(b, 0, l.bit_align*l.size*l.size*l.c * sizeof(float));
             //im2col_cpu_custom_align(state.input, l.c, l.h, l.w, l.size, l.stride, l.pad, b, l.bit_align);
             im2col_cpu_custom_bin(state.input, l.c, l.h, l.w, l.size, l.stride, l.pad, b, l.bit_align);
@@ -812,7 +821,6 @@ void forward_convolutional_layer(convolutional_layer l, network_state state)
                     //float_to_bit(t_input, t_bit_input, new_ldb * n);    // for im2col_cpu_custom_transpose() only
 
                     // 5x times faster than gemm()-float32
-                    // further optimizations: accelerate maxpool-layer with OpenMP/AVX
                     gemm_nn_custom_bin_mean_transposed(m, n, k, 1, l.align_bit_weights, new_ldb, t_bit_input, new_ldb, c, n, l.mean_arr);
 
                     //gemm_nn_custom_bin_mean_transposed(m, n, k, 1, bit_weights, k, t_bit_input, new_ldb, c, n, mean_arr);

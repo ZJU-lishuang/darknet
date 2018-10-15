@@ -21,8 +21,11 @@
 #include "http_stream.h"
 #endif
 #include "http_stream.h"
+
+#define CV_RGB(r, g, b) cvScalar( (b), (g), (r), 0 )
 #endif
 
+extern int check_mistakes;
 int windows = 0;
 
 float colors[6][3] = { {1,0,1}, {0,0,1},{0,1,1},{0,1,0},{1,1,0},{1,0,0} };
@@ -983,6 +986,7 @@ image load_image_cv(char *filename, int channels)
         char *new_line = "\n";
         fwrite(new_line, sizeof(char), strlen(new_line), fw);
         fclose(fw);
+        if (check_mistakes) getchar();
         return make_image(10,10,3);
         //exit(EXIT_FAILURE);
     }
@@ -1829,6 +1833,7 @@ image load_image_stb(char *filename, int channels)
         char *new_line = "\n";
         fwrite(new_line, sizeof(char), strlen(new_line), fw);
         fclose(fw);
+        if (check_mistakes) getchar();
         return make_image(10, 10, 3);
         //exit(EXIT_FAILURE);
     }
