@@ -1613,7 +1613,12 @@ void convolution_2d(int w, int h, int ksize, int n, int c, int pad, int stride,
                 }
     }
 }
-
+inline unsigned __int64 __popcount64(unsigned __int64 x)
+{
+	return
+		__popcnt((unsigned int)(x)) +
+		__popcnt((unsigned int)(x >> 32));
+}
 void gemm_nn_custom_bin_mean_transposed(int M, int N, int K, float ALPHA_UNUSED,
     unsigned char *A, int lda,
     unsigned char *B, int ldb,
@@ -1635,7 +1640,7 @@ void gemm_nn_custom_bin_mean_transposed(int M, int N, int K, float ALPHA_UNUSED,
                 uint64_t c_bit64 = xnor_int64(a_bit64, b_bit64);
 
 #ifdef WIN32
-                int tmp_count = __popcnt64(c_bit64);
+				int tmp_count = __popcount64(c_bit64);//int tmp_count = __popcnt64(c_bit64);
 #else
                 int tmp_count = __builtin_popcountll(c_bit64);
 #endif
