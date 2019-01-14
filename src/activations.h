@@ -1,12 +1,11 @@
 #ifndef ACTIVATIONS_H
 #define ACTIVATIONS_H
-#include "darknet.h"
 #include "cuda.h"
 #include "math.h"
 
-//typedef enum{
-//    LOGISTIC, RELU, RELIE, LINEAR, RAMP, TANH, PLSE, LEAKY, ELU, LOGGY, STAIR, HARDTAN, LHTAN, SELU
-//}ACTIVATION;
+typedef enum{
+    LOGISTIC, RELU, RELIE, LINEAR, RAMP, TANH, PLSE, LEAKY, ELU, LOGGY, STAIR, HARDTAN, LHTAN, SELU
+}ACTIVATION;
 
 ACTIVATION get_activation(char *s);
 
