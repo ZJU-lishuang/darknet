@@ -8,6 +8,9 @@
 #include "blas.h"
 #include "connected_layer.h"
 
+#if defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 #ifdef OPENCV
 #include "opencv2/highgui/highgui_c.h"
 #endif
